@@ -246,163 +246,82 @@ Parse.Cloud.define('purchaseItemsInCart', function(request, response) {
     // Parse.Cloud.useMasterKey();
 
     var cartItems;
+    console.log("**************** called purcahseItemsIncart **************");
 
     // We start in the context of a promise to keep all the
     // asynchronous code consistent. This is not required.
-    Parse.Promise.as().then(function() {
-        var itemsInCartQuery = new Parse.Query('Cart');
-        itemsInCartQuery.equalTo('user', request.user);
-
-        return itemsInCartQuery.find().then(null, function(error) {
-            return Parse.Promise.error('Cart query error.');
-        });
-
-    }).then(function(results) {
+    var itemsInCartQuery = new Parse.Query('Cart');
+    itemsInCartQuery.equalTo('user', request.user);
+    itemsInCartQuery.find().then(function(results) {
+        //console.log("results are " + results);
+        //Parse.Object.destoryAll(results).then(null, null);
         if (!results) {
-            return Parse.Promise.error('No item in shopping cart.');
-        } else {
-            // check if every product in cart is adequate
-            var count = {};
-            console.log("%%%%%%%%%% results %%%%%%%%%%")
-            console.log(results);
-            results.forEach(function(item) {
-                console.log("%%%%%%%%%% item %%%%%%%%%%")
-                console.log(item);
-                var product = item.get('product');
-                if (product in count) {
-                    count[product] = count[product] + item.get('quantity');
-                } else {
-                    count[product] = item.get('quantity');
-                }
-                if (product.get('quantityAvailable') < count[product]) {
-                    return Parse.Promise.error('Sorry, ' + item.get('name') + ' is out of stock.');
-                }
-            });
+            response.error('No item in shopping cart.');
         }
+
+        // check if every product in cart is adequate
+        /*
+        var productQuery = new Parse.Query("Item");
+        results.forEach(function(item) {
+            var productName = item.get('product').get('name');
+            if (productName in count) {
+                count[productName] = count[productName] + item.get('quantity');
+            } else {
+                count[productName] = item.get('quantity');
+            }
+            if (product.get('quantityAvailable') < count[productName]) {
+                return Parse.Promise.error('Sorry, ' + item.get('name') + ' is out of stock.');
+            }
+        });
+        console.log("**** count ****");
+        console.log(count);
+        */
 
         cartItems = results;
         // Decrease the quantity.
         cartItems.forEach(function(item) {
-            console.log("%%%% trying to deduct item %%%%%%%%%%")
+            console.log("**** trying to deduct item ****")
             console.log(item);
             var product = item.get('product');
-            product.fetch({
-                success: function(product) {
-                    product.increment('quantityAvailable', -item.get('quantity'));
-                }
-            });
+            console.log("**** its product");
+            console.log(product);
+            product.increment('quantityAvailable', -item.get('quantity'));
 
             // Save item.
-            return product.save().then(null, function(error) {
+            product.save().then(null, function(error) {
                 console.log('Decrementing quantity failed. Error: ' + error);
                 return Parse.Promise.error('An error has occurred. Your credit card was not charged.');
             });
 
+            order = new Parse.Object('Order');
+            order.set('email', request.params.email);
+            order.set('address', request.params.address);
+            order.set('zip', request.params.zip);
+            order.set('city_state', request.params.city);
+            order.set('item', item);
+            order.set('size', request.params.size || 'N/A');
+            order.set('fulfilled', false);
+            order.set('charged', false); // set to false until we actually charge the card
+            order.set('user', request.user);
+            order.set('itemName', request.params.itemName);
+            order.set('price', request.params.price);
+            order.set('image', request.params.image);
+            order.set('quantity', item.get('quantity'));
+
+            // Create new order
+            order.save().then(null, function(error) {
+                // This would be a good place to replenish the quantity we've removed.
+                // We've ommited this step in this app.
+                console.log('Creating order object failed. Error: ' + error);
+                return Parse.Promise.error('An error has occurred. Your credit card was not charged.');
+            });
+        }, function(error) {
+            response.error("Cart query error.");
         });
-    }).then(function(result) {
-        // Make sure a concurrent request didn't take the last item.
-        var item = result;
-        console.log("%%%% checking item %%%%%%%%%%")
-        console.log(item);
-        if (item.get('quantityAvailable') < 0) { // can be 0 if we took the last
-            return Parse.Promise.error('Sorry, ' + item.get('name') + ' is out of stock.');
-        }
-
-        // We have items left! Let's create our order item before
-        // charging the credit card (just to be safe).
-        order = new Parse.Object('Order');
-        order.set('name', item.name);
-        order.set('email', request.params.email);
-        order.set('address', request.params.address);
-        order.set('zip', request.params.zip);
-        order.set('city_state', request.params.city);
-        order.set('item', item);
-        order.set('size', request.params.size || 'N/A');
-        order.set('fulfilled', false);
-        order.set('charged', false); // set to false until we actually charge the card
-        order.set('user', request.user);
-        order.set('itemName', request.params.itemName);
-        order.set('price', request.params.price);
-        order.set('image', request.params.image);
-        order.set('quantity', request.params.quantity);
-
-        // Create new order
-        return order.save().then(null, function(error) {
-            // This would be a good place to replenish the quantity we've removed.
-            // We've ommited this step in this app.
-            console.log('Creating order object failed. Error: ' + error);
-            return Parse.Promise.error('An error has occurred. Your credit card was not charged.');
-        });
-
-    }).then(function(order) {
-        // Now we can charge the credit card using Stripe and the credit card token.
-        return stripe.charges.create({
-            amount: item.get('price') * 100, // express dollars in cents
-            currency: 'usd',
-            card: request.params.cardToken
-        }).then(null, function(error) {
-            console.log('Charging with stripe failed. Error: ' + error);
-            return Parse.Promise.error('An error has occurred. Your credit card was not charged.');
-        });
-
-    }).then(function(purchase) {
-        // Credit card charged! Now we save the ID of the purchase on our
-        // order and mark it as 'charged'.
-        order.set('stripePaymentId', purchase.id);
-        order.set('charged', true);
-
-        // Save updated order
-        return order.save().then(null, function(error) {
-            // This is the worst place to fail since the card was charged but the order's
-            // 'charged' field was not set. Here we need the user to contact us and give us
-            // details of their credit card (last 4 digits) and we can then find the payment
-            // on Stripe's dashboard to confirm which order to rectify.
-            return Parse.Promise.error('A critical error has occurred with your order. Please ' +
-                'contact store@parse.com at your earliest convinience. ');
-        });
-
-    }).then(function(order) {
-        // Credit card charged and order item updated properly!
-        // We're done, so let's send an email to the user.
-
-        // Generate the email body string.
-        var body = "We've received and processed your order for the following item: \n\n" +
-        "Item: " + request.params.itemName + "\n";
-
-        if (request.params.size && request.params.size !== "N/A") {
-            body += "Size: " + request.params.size + "\n";
-        }
-
-        body += "\nPrice: $" + item.get('price') + ".00 \n" +
-        "Shipping Address: \n" +
-        request.params.name + "\n" +
-        request.params.address + "\n" +
-        request.params.city_state + "," +
-        "United States, " + request.params.zip + "\n" +
-        "\nWe will send your item as soon as possible. " +
-        "Let us know if you have any questions!\n\n" +
-        "Thank you,\n" +
-        "The Parse Team";
-
-        // Send the email.
-        var data = {
-            from: 'Excited User <me@samples.mailgun.org>',
-            to: request.params.email,
-            subject: 'Your order for a Parse ' + request.params.itemName + ' was successful!',
-            text: body
-        };
-        return mailgun.messages().send(data, function (error, body) {
-            console.log(body);
-        });
-
     }).then(function() {
-        // And we're done!
-        response.success('Success');
 
-        // Any promise that throws an error will propagate to this handler.
-        // We use it to return the error from our Cloud Function using the
-        // message we individually crafted based on the failure above.
-    }, function(error) {
-        response.error(error);
+        //console.log("deleting cart items " + cartItems);
+        //Parse.Object.destoryAll(cartItems);
+        response.success("Purchase finished.");
     });
 });
