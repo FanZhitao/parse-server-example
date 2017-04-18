@@ -241,9 +241,35 @@ Parse.Cloud.define('addToCart', function(request, response) {
     });
 });
 Parse.Cloud.define('purchaseItemsInCart', function(request, response) {
+    var itemsInCartQuery = new Parse.Query('Cart');
+    itemsInCartQuery.equalTo('user', request.user);
+    itemsInCartQuery.find({
+        success: function(results) {
+            console.log('trying to destory');
+            Parse.Object.destoryAll(results, {
+                success: function() {
+                    console.log('destory success');
+                },
+                error: function(error) {
+                    console.log('destory error: ' + error.message);
+                },
+                useMasterKey: true
+            });
+            console.log('destoried all ?');
+            status.success('success');
+        },
+        error: function(error) {
+            console.log('destoried error: ' + error.message);
+            status.error(error.message);
+        },
+    });
+    response.success('success');
+});
+/*
+Parse.Cloud.define('purchaseItemsInCart', function(request, response) {
     // The Item and Order tables are completely locked down. We
     // ensure only Cloud Code can get access by using the master key.
-    // Parse.Cloud.useMasterKey();
+    Parse.Cloud.useMasterKey();
 
     var cartItems;
     console.log("**************** called purcahseItemsIncart **************");
@@ -252,7 +278,7 @@ Parse.Cloud.define('purchaseItemsInCart', function(request, response) {
     // asynchronous code consistent. This is not required.
     var itemsInCartQuery = new Parse.Query('Cart');
     itemsInCartQuery.equalTo('user', request.user);
-    itemsInCartQuery.find().then(function(results) {
+    itemsInCartQuery.find({useMasterKey: true}).then(function(results) {
         //console.log("results are " + results);
         //Parse.Object.destoryAll(results).then(null, null);
         if (!results) {
@@ -260,7 +286,6 @@ Parse.Cloud.define('purchaseItemsInCart', function(request, response) {
         }
 
         // check if every product in cart is adequate
-        /*
         var productQuery = new Parse.Query("Item");
         results.forEach(function(item) {
             var productName = item.get('product').get('name');
@@ -275,7 +300,6 @@ Parse.Cloud.define('purchaseItemsInCart', function(request, response) {
         });
         console.log("**** count ****");
         console.log(count);
-        */
 
         cartItems = results;
         // Decrease the quantity.
@@ -309,7 +333,10 @@ Parse.Cloud.define('purchaseItemsInCart', function(request, response) {
             order.set('quantity', item.get('quantity'));
 
             // Create new order
-            order.save().then(null, function(error) {
+            order.save().then(function(success) {
+                console.log(' *** order saved *** ');
+                console.log(item);
+            }, function(error) {
                 // This would be a good place to replenish the quantity we've removed.
                 // We've ommited this step in this app.
                 console.log('Creating order object failed. Error: ' + error);
@@ -320,8 +347,12 @@ Parse.Cloud.define('purchaseItemsInCart', function(request, response) {
         });
     }).then(function() {
 
-        //console.log("deleting cart items " + cartItems);
-        //Parse.Object.destoryAll(cartItems);
+        //console.log("deleting cart items "  cartItems);
+        //Parse.Object.destoryAll(cartItems).then(function(success) {
+//        }, function(error) {
+//            console.error("Oops! Something went wrong: " + error.message + " (" + error.code + ")");
+//        });
         response.success("Purchase finished.");
     });
 });
+*/
