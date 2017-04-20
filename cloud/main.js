@@ -208,6 +208,7 @@ Parse.Cloud.define('addToCart', function(request, response) {
         cartQuery.equalTo('product', item);
         cartQuery.equalTo('user', request.user);
         cartQuery.equalTo('size', request.params.size || 'N/A');
+        cartQuery.equalTo('valid', true);
 
         return cartQuery.first().then(null, function(error) {
             return Parse.Promise.error('Query cart error.');
@@ -221,6 +222,7 @@ Parse.Cloud.define('addToCart', function(request, response) {
             cartItem.set('product', item);
             cartItem.set('quantity', request.params.quantity);
             cartItem.set('size', request.params.size || 'N/A');
+            cartItem.set('valid', true);
         } else {
             cartItem.increment('quantity', request.params.quantity);
         }
@@ -241,29 +243,51 @@ Parse.Cloud.define('addToCart', function(request, response) {
     });
 });
 Parse.Cloud.define('purchaseItemsInCart', function(request, response) {
-    var itemsInCartQuery = new Parse.Query('Cart');
-    itemsInCartQuery.equalTo('user', request.user);
-    itemsInCartQuery.find({
-        success: function(results) {
-            console.log('trying to destory');
-            Parse.Object.destoryAll(results, {
-                success: function() {
-                    console.log('destory success');
-                },
-                error: function(error) {
-                    console.log('destory error: ' + error.message);
-                },
-                useMasterKey: true
+    Parse.Promise.as().then(function() {
+        console.log('called purchase cart items.')
+        var itemsInCartQuery = new Parse.Query('Cart');
+        itemsInCartQuery.equalTo('user', request.user);
+        itemsInCartQuery.equalTo('valid', true);
+        return itemsInCartQuery.find().then(null, function(error) {
+            return Parse.Promise.error(error.message);
+        });
+    }).then(function(results) {
+        console.log('results: ' + results);
+        if (!results) {
+            console.log('results error');
+            return Parse.Promise.error('no cart items.');
+        }
+        console.log('trying to invalidate the items');
+        results.forEach(function(item) {
+            item.set('valid', false);
+            item.save().then(null, function(error) {
+                return Parse.Promise.error('item error: ' + error.message);
             });
-            console.log('destoried all ?');
-            status.success('success');
-        },
-        error: function(error) {
-            console.log('destoried error: ' + error.message);
-            status.error(error.message);
-        },
-    });
-    response.success('success');
+
+            order = new Parse.Object('Order');
+            order.set('email', request.params.email);
+            order.set('address', request.params.address);
+            order.set('zip', request.params.zip);
+            order.set('city_state', request.params.city);
+            order.set('item', item);
+            order.set('size', request.params.size || 'N/A');
+            order.set('fulfilled', false);
+            order.set('charged', false); // set to false until we actually charge the card
+            order.set('user', request.user);
+            order.set('itemName', request.params.itemName);
+            order.set('price', request.params.price);
+            order.set('image', request.params.image);
+            order.set('quantity', item.get('quantity'));
+
+            // Create new order
+            order.save().then(null, function(error) {
+                return Parse.Promise.error('order error: ' + error.message);
+            });
+        });
+        response.success('success');
+    }, function(error) {
+        console.log('destoried error: ' + error.message);
+    })
 });
 /*
 Parse.Cloud.define('purchaseItemsInCart', function(request, response) {
