@@ -269,14 +269,12 @@ Parse.Cloud.define('purchaseItemsInCart', function(request, response) {
             order.set('address', request.params.address);
             order.set('zip', request.params.zip);
             order.set('city_state', request.params.city);
-            order.set('item', item);
+            order.set('item', item.product);
             order.set('size', request.params.size || 'N/A');
             order.set('fulfilled', false);
             order.set('charged', false); // set to false until we actually charge the card
             order.set('user', request.user);
-            order.set('itemName', request.params.itemName);
             order.set('price', request.params.price);
-            order.set('image', request.params.image);
             order.set('quantity', item.get('quantity'));
 
             // Create new order
